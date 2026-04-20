@@ -1,0 +1,32 @@
+[project]
+name = "ai-agent-wallet"
+version = "0.1.0"
+description = "AI Agent 加密货币钱包 - 以太坊 Sepolia 测试网 MCP Server"
+requires-python = ">=3.11"
+dependencies = [
+    "web3>=7.0.0",
+    "eth-account>=0.13.0",
+    "mcp[cli]>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "cryptography>=44.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wallet"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
