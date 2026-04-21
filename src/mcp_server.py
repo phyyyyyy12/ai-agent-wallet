@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 
 from wallet.core import WalletCore
-from wallet.security import SecurityManager, OperationLog, CheckResult
+from wallet.security import SecurityManager, OperationLog, CheckResult, ApprovalManager
 
 mcp = FastMCP(
     "AI Agent Wallet",
@@ -15,6 +15,7 @@ mcp = FastMCP(
 
 wallet = WalletCore()
 security = SecurityManager()
+approvals = ApprovalManager()
 
 # 启动时尝试加载已有钱包
 wallet.load_wallet()
@@ -78,8 +79,23 @@ def send_eth(to: str, amount_eth: float) -> str:
         return f"交易被拒绝: {check.reason}"
 
     if check.result == CheckResult.NEEDS_APPROVAL:
-        _log("send_eth", params, f"NEEDS_APPROVAL: {check.reason}", check="NEEDS_APPROVAL", start=start)
-        return f"交易需要人类审批: {check.reason}\n\n请人类用户在仪表盘中确认此操作。"
+        approval = approvals.create(
+            from_address=wallet.address or "",
+            to_address=to,
+            amount_eth=amount_eth,
+            reason=check.reason,
+        )
+        _log("send_eth", params, f"NEEDS_APPROVAL: {approval.approval_id}", check="NEEDS_APPROVAL", start=start)
+        return (
+            f"交易需要人类审批\n"
+            f"  审批 ID: {approval.approval_id}\n"
+            f"  原因: {check.reason}\n"
+            f"  From: {approval.from_address}\n"
+            f"  To: {to}\n"
+            f"  金额: {amount_eth} ETH\n\n"
+            f"人类操作员请调用 approve_pending_transaction(approval_id) 确认，"
+            f"或 reject_pending_transaction(approval_id) 拒绝。"
+        )
 
     # 执行交易
     try:
@@ -175,21 +191,93 @@ def set_spending_limit(per_tx_eth: float = -1, daily_eth: float = -1) -> str:
 
 
 @mcp.tool()
-def get_transaction_history() -> str:
-    """获取交易历史记录。"""
+def get_transaction_history(all_wallets: bool = False, include_incoming: bool = True) -> str:
+    """获取交易历史记录。
+
+    Args:
+        all_wallets: 默认 False 仅显示当前钱包；True 返回本地所有钱包的发出记录
+        include_incoming: 默认 True 包含通过 Etherscan 查询到的收款记录（仅当前钱包）
+    """
     start = time.time()
-    history = wallet.get_transaction_history()
-    if not history:
-        _log("get_transaction_history", {}, "No transactions", start=start)
+    outgoing = wallet.get_transaction_history(all_wallets=all_wallets)
+    incoming = wallet.get_incoming_transactions() if include_incoming and not all_wallets else []
+
+    merged = sorted(outgoing + incoming, key=lambda t: t["timestamp"], reverse=True)
+
+    if not merged:
+        _log("get_transaction_history", {"all_wallets": all_wallets}, "No transactions", start=start)
         return "暂无交易记录。"
 
-    lines = ["交易历史:"]
-    for tx in history[:20]:
+    lines = [f"交易历史{'（全部钱包）' if all_wallets else ''}:"]
+    for tx in merged[:30]:
+        arrow = "←" if tx.get("direction") == "in" else "→"
+        peer = tx["from"] if tx.get("direction") == "in" else tx["to"]
         lines.append(
-            f"  [{tx['timestamp'][:19]}] {tx['value_eth']} ETH → {tx['to'][:10]}... ({tx['status']})"
+            f"  [{tx['timestamp'][:19]}] {tx['value_eth']} ETH {arrow} {peer[:10]}... ({tx['status']})"
         )
-    _log("get_transaction_history", {}, f"{len(history)} records", start=start)
+    _log("get_transaction_history", {"all_wallets": all_wallets}, f"{len(merged)} records", start=start)
     return "\n".join(lines)
+
+
+@mcp.tool()
+def list_wallets() -> str:
+    """列出所有本地钱包及余额。"""
+    start = time.time()
+    wallets = wallet.list_wallets()
+    if not wallets:
+        _log("list_wallets", {}, "No wallets", start=start)
+        return "未找到任何钱包。"
+    lines = ["本地钱包列表:"]
+    for w in wallets:
+        active_mark = " ← 当前" if w["active"] else ""
+        lines.append(f"  {w['address']}  {w['balance_eth']} ETH{active_mark}")
+    _log("list_wallets", {}, f"{len(wallets)} wallets", start=start)
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def switch_wallet(address: str) -> str:
+    """切换到指定地址的钱包。
+
+    Args:
+        address: 要切换到的钱包地址（0x...）
+    """
+    start = time.time()
+    try:
+        addr = wallet.switch_wallet(address)
+        balance = wallet.get_balance()
+        result = f"已切换到钱包: {addr}\n余额: {balance['balance_eth']} ETH"
+        _log("switch_wallet", {"address": address}, result, start=start)
+        return result
+    except ValueError as e:
+        err = str(e)
+        _log("switch_wallet", {"address": address}, f"ERROR: {err}", start=start)
+        return f"切换失败: {err}"
+
+
+@mcp.tool()
+def list_pending_approvals() -> str:
+    """列出所有待人类审批的交易。"""
+    start = time.time()
+    pending = approvals.list_pending()
+    if not pending:
+        _log("list_pending_approvals", {}, "No pending", start=start)
+        return "暂无待审批交易。"
+    lines = ["待审批交易:"]
+    for a in pending:
+        lines.append(
+            f"  [{a.approval_id}] {a.amount_eth} ETH  {a.from_address[:10]}... → {a.to_address[:10]}...\n"
+            f"    原因: {a.reason}\n"
+            f"    创建时间: {a.created_at[:19]}"
+        )
+    _log("list_pending_approvals", {}, f"{len(pending)} pending", start=start)
+    return "\n".join(lines)
+
+
+# 注：approve/reject 工具不暴露给 Agent，仅人类操作员通过 React Dashboard
+# 调用 FastAPI 的 /api/approvals/{id}/approve | /reject 端点完成审批闭环。
+# 这是真实的权限隔离——MCP 没有这些工具，Agent 即使被 prompt injection
+# 诱导也无法自行通过审批。
 
 
 if __name__ == "__main__":

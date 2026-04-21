@@ -68,11 +68,3 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/test_wallet.py -v
 
 ---
 
-## 6. 未覆盖的内容
-
-| 内容 | 原因 |
-|------|------|
-| 真实链上转账 | 需要测试 ETH，不适合自动化测试 |
-| MCP Server 工具调用 | 业务逻辑已被上述测试覆盖 |
-| React 前端 | 手动在浏览器验证 |
-| API 端点 | 无独立业务逻辑，只是透传 |

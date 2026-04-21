@@ -70,6 +70,12 @@
 | `sign_message` | `message` | 签名消息 |
 | `get_wallet_info` | — | 获取当前钱包地址和余额 |
 | `set_spending_limit` | `per_tx`, `daily` | 设置支出限额 |
+| `list_wallets` | — | 列出所有本地钱包及余额，标注当前活跃钱包 |
+| `switch_wallet` | `address` | 切换到指定地址的钱包 |
+| `get_transaction_history` | `all_wallets?`, `include_incoming?` | 默认查当前钱包，含收款记录 |
+| `list_pending_approvals` | — | 只读，列出所有待人类审批的超限交易 |
+
+> approve / reject 故意不放在 MCP 中，避免 Agent 自审批；详见下方 HTTP API。
 
 ### 2.2 HTTP API Layer（FastAPI 层）
 
@@ -79,10 +85,15 @@
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/wallet` | GET | 钱包信息（地址、余额） |
-| `/api/transactions` | GET | 交易历史列表 |
+| `/api/wallet` | GET | 当前活跃钱包信息（地址、余额） |
+| `/api/wallets` | GET | 所有本地钱包列表（地址、余额、是否活跃） |
+| `/api/wallets/switch` | POST | 切换活跃钱包 `{address}` |
+| `/api/transactions` | GET | 交易历史列表（合并发送 + Etherscan 收款） |
 | `/api/logs` | GET | Agent 操作日志 |
 | `/api/security` | GET/PUT | 安全策略查询和修改 |
+| `/api/approvals` | GET | 列出待审批交易 |
+| `/api/approvals/{id}/approve` | POST | 【人类专用】通过审批并执行 |
+| `/api/approvals/{id}/reject` | POST | 【人类专用】拒绝审批 `{reason?}` |
 
 ### 2.3 Security Layer（安全层）
 
@@ -97,21 +108,26 @@
 - **返回状态**：
   - `APPROVED`：通过，可执行
   - `DENIED`：违反硬性规则，拒绝
-  - `NEEDS_APPROVAL`：超出 Agent 自主范围，需人类确认
+  - `NEEDS_APPROVAL`：超出 Agent 自主范围，写入 `ApprovalManager` 队列（持久化到 `pending_approvals.json`），返回 approval ID 供人类审批
+
+- **审批闭环**：人类操作员在 React Dashboard 的 Approvals 面板点击"通过/拒绝"，背后调用 `POST /api/approvals/{id}/approve|reject`。通过后钱包自动切换到发起地址并执行链上转账。全部决策写入审计日志。approve / reject **不暴露在 MCP 中**，Agent 物理上无法自审批。
 
 ### 2.4 Wallet Core（钱包核心层）
 
 - **职责**：密钥管理、交易构建与签名、链上交互
-- **密钥存储**：AES-256 (Fernet) 加密的 keystore 文件
-- **链上交互**：通过 web3.py 连接 Sepolia RPC
+- **密钥存储**：AES-256 (Fernet) 加密的 keystore 文件，权限 0600
+- **主密码**：通过 `WalletConfig.resolve_keystore_password()` 解析，优先级 env > `~/.ai-agent-wallet/.master_key` 文件 > 自动生成（首次启动若有存量 keystore 则迁移旧默认密码以保持兼容）
+- **Etherscan Key**：通过 `WalletConfig.resolve_etherscan_api_key()` 解析，优先级 env `WALLET_ETHERSCAN_API_KEY` > `~/.ai-agent-wallet/.etherscan_key` 文件；用于查询收款记录（Etherscan V2 API，chainid=11155111）
+- **链上交互**：通过 web3.py 连接 Sepolia RPC；收款记录通过 Etherscan V2 API 拉取，与本地发送记录合并后按时间排序，以 ← / → 标注方向
 
 ### 2.5 Frontend Layer（前端展示层）
 
 - **技术栈**：React 18 + TypeScript + Vite
 - **职责**：可视化展示钱包状态，供人类监控和管理
 - **页面**：
-  - Dashboard 首页：余额、最近交易
-  - 交易历史：完整交易列表
+  - Dashboard 首页：余额、最近 Agent 操作
+  - 交易历史：收款/转出合并，方向标识（↓ IN / ↑ OUT）
+  - **Approvals 待审批**：超限交易卡片，含通过/拒绝按钮；有待审批时 tab 显示黄色角标
   - 安全配置：限额设置、白名单管理
   - Agent 日志：实时操作日志流
 
@@ -193,7 +209,7 @@ ai-agent-wallet/
 ├── web/                     # React 前端
 │   ├── src/
 │   │   ├── App.tsx
-│   │   ├── components/      # Dashboard, Balance, TransactionList, SecurityConfig, AgentLog
+│   │   ├── components/      # Dashboard, TransactionList, PendingApprovals, SecurityConfig, AgentLog, WalletSelector
 │   │   └── main.tsx
 │   ├── index.html
 │   ├── package.json

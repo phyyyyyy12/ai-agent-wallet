@@ -25,11 +25,11 @@ cd ai-agent-wallet
 # 安装依赖
 uv sync --dev
 
-# 运行测试（18 个，全部应通过）
+# 运行测试
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_wallet.py -v
 
 # 启动 API Server（供前端使用，端口 8088）
-PYTHONPATH=src .venv/bin/python src/api.py
+WALLET_ETHERSCAN_API_KEY=your_key .venv/bin/python -m uvicorn src.api:app --port 8088 --reload
 ```
 
 ### 前端
@@ -41,26 +41,25 @@ npm run dev
 # 访问 http://localhost:5173
 ```
 
-### 配置为 Claude Code MCP Server
+### 配置为 MCP Server
 
-```bash
-# 在项目根目录执行
-claude mcp add ai-wallet \
-  /path/to/ai-agent-wallet/.venv/bin/python \
-  -- /path/to/ai-agent-wallet/src/mcp_server.py
+在项目根目录（或 `~/.claude/`）创建 `.mcp.json`：
 
-# 验证连接
-claude mcp list
+```json
+{
+  "mcpServers": {
+    "ai-wallet": {
+      "command": "/path/to/ai-agent-wallet/.venv/bin/python",
+      "args": ["/path/to/ai-agent-wallet/src/mcp_server.py"],
+      "env": {
+        "WALLET_ETHERSCAN_API_KEY": "your_key"
+      }
+    }
+  }
+}
 ```
 
-配置成功后重开 Claude Code 会话，即可直接调用钱包工具：
-
-```
-# 示例指令（在 Claude Code 中直接说）
-帮我创建一个新钱包
-查一下当前钱包余额
-签名消息"I am the owner of this wallet"
-```
+重启 Claude Code / Cursor 后即可直接调用钱包工具。
 
 ## MCP 工具列表
 
@@ -72,29 +71,33 @@ claude mcp list
 | `get_balance` | 查询任意地址余额 |
 | `send_eth` | 转账（受安全策略约束） |
 | `get_transaction` | 查询交易详情 |
-| `get_transaction_history` | 查询历史交易 |
+| `get_transaction_history` | 查询历史交易，合并收款记录，← / → 标注方向 |
 | `sign_message` | 签名消息，证明地址所有权 |
 | `set_spending_limit` | 设置支出限额 |
+| `list_wallets` | 列出所有本地钱包及余额 |
+| `switch_wallet` | 切换当前活跃钱包 |
+| `list_pending_approvals` | 查看待人类审批的超限交易（只读） |
+
+> approve / reject 不在 MCP 工具集中，仅人类可通过 React Dashboard 操作，从根本上防止 Agent 自审批。
 
 ## 安全策略
 
-- 单笔限额（默认 0.1 ETH）
-- 日累计限额（默认 1.0 ETH）
-- 频率限制（默认 5 笔/分钟）
-- 地址白名单
-- 超限操作返回 `NEEDS_APPROVAL`，需人类确认
-- 全量操作审计日志（JSONL 格式）
+- 单笔限额（默认 0.1 ETH）/ 日累计限额（默认 1.0 ETH）/ 频率限制（默认 5 笔/分钟）/ 地址白名单
+- 超限操作写入待审批队列，生成 approval ID；**仅人类可在 Dashboard 点击通过/拒绝**，Agent 无法自审批
+- 私钥加密存储，主密码自动生成至 `~/.ai-agent-wallet/.master_key`（0600），不硬编码在源码中
+- 全量操作审计日志（JSONL 格式），每次工具调用均留痕
 
-## 环境变量
+## 环境变量 / 本地配置文件
 
-| 变量 | 说明 | 默认值 |
+| 变量 | 说明 | 默认行为 |
 |------|------|--------|
-| `WALLET_RPC_URL` | Sepolia RPC 节点 | `https://ethereum-sepolia-rpc.publicnode.com` |
+| `WALLET_RPC_URL` | Sepolia RPC 节点 | 使用公共节点 |
 | `WALLET_DATA_DIR` | 数据存储目录 | `~/.ai-agent-wallet` |
-| `WALLET_KEYSTORE_PASSWORD` | keystore 加密密码 | `demo-password-change-in-production` |
+| `WALLET_KEYSTORE_PASSWORD` | keystore 加密密码 | 自动读取 `~/.ai-agent-wallet/.master_key`，首次启动自动生成 |
+| `WALLET_ETHERSCAN_API_KEY` | Etherscan API Key（收款查询） | 自动读取 `~/.ai-agent-wallet/.etherscan_key` |
 | `WALLET_API_PORT` | API 端口 | `8088` |
 
-> 生产环境请务必修改 `WALLET_KEYSTORE_PASSWORD`
+env 优先级高于本地文件。本地文件权限均为 0600，可直接编辑替换。
 
 ## 文档
 

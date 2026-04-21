@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -79,6 +80,35 @@ class WalletCore:
         if not files:
             return None
         pk = self._load_keystore(files[0])
+        account = Account.from_key(pk)
+        self._account = account
+        self._address = account.address
+        return account.address
+
+    def list_wallets(self) -> list[dict]:
+        """列出所有本地钱包及余额"""
+        keystore_dir = config.data_dir / "keystores"
+        result = []
+        for f in sorted(keystore_dir.glob("*.json")):
+            address = f.stem
+            try:
+                balance_info = self.get_balance(address)
+                balance_eth = balance_info["balance_eth"]
+            except Exception:
+                balance_eth = "0"
+            result.append({
+                "address": address,
+                "balance_eth": balance_eth,
+                "active": address == self._address,
+            })
+        return result
+
+    def switch_wallet(self, address: str) -> str:
+        """切换到指定地址的钱包"""
+        keystore_path = config.data_dir / "keystores" / f"{address}.json"
+        if not keystore_path.exists():
+            raise ValueError(f"未找到钱包 {address}")
+        pk = self._load_keystore(keystore_path)
         account = Account.from_key(pk)
         self._account = account
         self._address = account.address
@@ -187,7 +217,29 @@ class WalletCore:
 
     # ── 交易历史 ──
 
-    def get_transaction_history(self) -> list[dict]:
+    def get_transaction_history(self, all_wallets: bool = False) -> list[dict]:
+        """获取本地记录的发送交易历史。默认仅返回当前钱包，all_wallets=True 返回全部。"""
+        self._load_transactions()
+        updated = False
+        for t in self._transactions:
+            if t.status == "pending":
+                try:
+                    receipt = self._w3.eth.get_transaction_receipt(t.tx_hash)
+                    if receipt:
+                        t.status = "success" if receipt["status"] == 1 else "failed"
+                        t.block_number = receipt["blockNumber"]
+                        t.gas_used = receipt["gasUsed"]
+                        updated = True
+                except Exception:
+                    pass
+        if updated:
+            self._save_transactions()
+
+        records = self._transactions
+        if not all_wallets and self._address:
+            current = self._address.lower()
+            records = [t for t in records if t.from_address.lower() == current]
+
         return [
             {
                 "tx_hash": t.tx_hash,
@@ -198,15 +250,59 @@ class WalletCore:
                 "timestamp": t.timestamp,
                 "block_number": t.block_number,
                 "gas_used": t.gas_used,
+                "direction": "out",
             }
-            for t in reversed(self._transactions)
+            for t in reversed(records)
         ]
+
+    def get_incoming_transactions(self, limit: int = 20) -> list[dict]:
+        """通过 Etherscan V2 API 查询当前钱包的收款记录。需配置 WALLET_ETHERSCAN_API_KEY。"""
+        if not self._address or not config.resolve_etherscan_api_key():
+            return []
+        params = {
+            "chainid": config.etherscan_chain_id,
+            "module": "account",
+            "action": "txlist",
+            "address": self._address,
+            "sort": "desc",
+            "page": 1,
+            "offset": 100,
+            "apikey": config.resolve_etherscan_api_key(),
+        }
+        try:
+            resp = httpx.get(config.etherscan_api_url, params=params, timeout=10)
+            data = resp.json()
+        except Exception:
+            return []
+        if data.get("status") != "1":
+            return []
+
+        addr = self._address.lower()
+        incoming = []
+        for tx in data.get("result", []):
+            if tx.get("to", "").lower() != addr:
+                continue
+            value_eth = str(self._w3.from_wei(int(tx["value"]), "ether"))
+            ts = datetime.fromtimestamp(int(tx["timeStamp"]), tz=timezone.utc).isoformat()
+            incoming.append({
+                "tx_hash": tx["hash"],
+                "from": tx["from"],
+                "to": tx["to"],
+                "value_eth": value_eth,
+                "status": "success" if tx.get("isError") == "0" else "failed",
+                "timestamp": ts,
+                "block_number": int(tx["blockNumber"]),
+                "direction": "in",
+            })
+            if len(incoming) >= limit:
+                break
+        return incoming
 
     # ── 内部方法 ──
 
     def _save_keystore(self, private_key: str) -> None:
         salt = secrets.token_bytes(16)
-        key = _derive_key(config.keystore_password, salt)
+        key = _derive_key(config.resolve_keystore_password(), salt)
         f = Fernet(key)
         encrypted = f.encrypt(private_key.encode())
 
@@ -224,7 +320,7 @@ class WalletCore:
     def _load_keystore(self, path: Path) -> str:
         data = json.loads(path.read_text())
         salt = bytes.fromhex(data["salt"])
-        key = _derive_key(config.keystore_password, salt)
+        key = _derive_key(config.resolve_keystore_password(), salt)
         f = Fernet(key)
         return f.decrypt(data["encrypted_key"].encode()).decode()
 

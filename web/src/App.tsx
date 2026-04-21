@@ -3,6 +3,10 @@ import Dashboard from "./components/Dashboard";
 import TransactionList from "./components/TransactionList";
 import SecurityConfig from "./components/SecurityConfig";
 import AgentLog from "./components/AgentLog";
+import WalletSelector from "./components/WalletSelector";
+import PendingApprovals from "./components/PendingApprovals";
+import type { PendingApproval } from "./components/PendingApprovals";
+import type { WalletItem } from "./components/WalletSelector";
 
 const API = "";
 
@@ -27,6 +31,7 @@ export interface Transaction {
   timestamp: string;
   block_number: number | null;
   gas_used: number | null;
+  direction?: "in" | "out";
 }
 
 export interface LogEntry {
@@ -46,11 +51,12 @@ export interface SecurityPolicy {
   address_whitelist: string[];
 }
 
-type Tab = "dashboard" | "transactions" | "security" | "logs";
+type Tab = "dashboard" | "transactions" | "approvals" | "security" | "logs";
 
 const tabs: { key: Tab; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
   { key: "transactions", label: "Transactions" },
+  { key: "approvals", label: "Approvals" },
   { key: "security", label: "Security" },
   { key: "logs", label: "Agent Logs" },
 ];
@@ -58,26 +64,41 @@ const tabs: { key: Tab; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
+  const [wallets, setWallets] = useState<WalletItem[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [security, setSecurity] = useState<SecurityPolicy | null>(null);
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [w, t, l, s] = await Promise.all([
+      const [w, ws, t, l, s, a] = await Promise.all([
         fetch(`${API}/api/wallet`).then((r) => r.json()),
+        fetch(`${API}/api/wallets`).then((r) => r.json()),
         fetch(`${API}/api/transactions`).then((r) => r.json()),
         fetch(`${API}/api/logs`).then((r) => r.json()),
         fetch(`${API}/api/security`).then((r) => r.json()),
+        fetch(`${API}/api/approvals`).then((r) => r.json()),
       ]);
       setWallet(w);
+      setWallets(ws);
       setTransactions(t);
       setLogs(l);
       setSecurity(s);
+      setApprovals(a);
     } catch (e) {
       console.error("Failed to fetch data:", e);
     }
   }, []);
+
+  const handleSwitchWallet = async (address: string) => {
+    await fetch(`${API}/api/wallets/switch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    await fetchAll();
+  };
 
   useEffect(() => {
     fetchAll();
@@ -89,7 +110,10 @@ export default function App() {
     <div style={styles.app}>
       <header style={styles.header}>
         <h1 style={styles.title}>AI Agent Wallet</h1>
-        <span style={styles.network}>Sepolia Testnet</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <WalletSelector wallets={wallets} onSwitch={handleSwitchWallet} />
+          <span style={styles.network}>Sepolia Testnet</span>
+        </div>
       </header>
 
       <nav style={styles.nav}>
@@ -103,6 +127,9 @@ export default function App() {
             }}
           >
             {t.label}
+            {t.key === "approvals" && approvals.length > 0 && (
+              <span style={styles.badge}>{approvals.length}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -110,6 +137,7 @@ export default function App() {
       <main style={styles.main}>
         {tab === "dashboard" && <Dashboard wallet={wallet} transactions={transactions} logs={logs} />}
         {tab === "transactions" && <TransactionList transactions={transactions} />}
+        {tab === "approvals" && <PendingApprovals approvals={approvals} onAction={fetchAll} />}
         {tab === "security" && <SecurityConfig security={security} onUpdate={fetchAll} />}
         {tab === "logs" && <AgentLog logs={logs} />}
       </main>
@@ -168,6 +196,15 @@ const styles: Record<string, React.CSSProperties> = {
   tabActive: {
     background: "#1a1a2e",
     color: "#fff",
+  },
+  badge: {
+    marginLeft: "8px",
+    background: "#fbbf24",
+    color: "#1a1a2e",
+    borderRadius: "10px",
+    padding: "1px 7px",
+    fontSize: "11px",
+    fontWeight: 700,
   },
   main: {
     padding: "24px 32px",

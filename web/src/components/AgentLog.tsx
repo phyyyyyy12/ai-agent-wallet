@@ -42,7 +42,7 @@ export default function AgentLog({ logs }: Props) {
                 {log.security_check}
               </span>
               <span style={styles.time}>
-                {log.timestamp.slice(0, 19).replace("T", " ")}
+                {new Date(log.timestamp).toLocaleString()}
               </span>
               {log.duration_ms && (
                 <span style={styles.duration}>{log.duration_ms}ms</span>

@@ -83,7 +83,7 @@ export default function Dashboard({ wallet, transactions, logs }: Props) {
             <tbody>
               {recentLogs.map((log, i) => (
                 <tr key={i} style={styles.tr}>
-                  <td style={styles.td}>{log.timestamp.slice(11, 19)}</td>
+                  <td style={styles.td}>{new Date(log.timestamp).toLocaleTimeString()}</td>
                   <td style={styles.td}>
                     <code style={styles.code}>{log.tool}</code>
                   </td>

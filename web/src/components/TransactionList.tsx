@@ -22,6 +22,7 @@ export default function TransactionList({ transactions }: Props) {
       <table style={styles.table}>
         <thead>
           <tr>
+            <th style={styles.th}>Direction</th>
             <th style={styles.th}>Time</th>
             <th style={styles.th}>Tx Hash</th>
             <th style={styles.th}>From</th>
@@ -31,39 +32,55 @@ export default function TransactionList({ transactions }: Props) {
           </tr>
         </thead>
         <tbody>
-          {transactions.map((tx) => (
-            <tr key={tx.tx_hash} style={styles.tr}>
-              <td style={styles.td}>{tx.timestamp.slice(0, 19).replace("T", " ")}</td>
-              <td style={styles.td}>
-                <a
-                  href={`https://sepolia.etherscan.io/tx/${tx.tx_hash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={styles.link}
-                >
-                  {tx.tx_hash.slice(0, 10)}...
-                </a>
-              </td>
-              <td style={styles.td}>
-                <code style={styles.addr}>{tx.from.slice(0, 8)}...</code>
-              </td>
-              <td style={styles.td}>
-                <code style={styles.addr}>{tx.to.slice(0, 8)}...</code>
-              </td>
-              <td style={styles.td}>{tx.value_eth} ETH</td>
-              <td style={styles.td}>
-                <span
-                  style={{
-                    ...styles.badge,
-                    background: tx.status === "success" ? "#064e3b" : tx.status === "pending" ? "#78350f" : "#7f1d1d",
-                    color: tx.status === "success" ? "#4ade80" : tx.status === "pending" ? "#fbbf24" : "#f87171",
-                  }}
-                >
-                  {tx.status}
-                </span>
-              </td>
-            </tr>
-          ))}
+          {transactions.map((tx) => {
+            const isIn = tx.direction === "in";
+            return (
+              <tr key={`${tx.tx_hash}-${tx.direction ?? "out"}`} style={styles.tr}>
+                <td style={styles.td}>
+                  <span
+                    style={{
+                      ...styles.dirBadge,
+                      background: isIn ? "#064e3b" : "#1e3a8a",
+                      color: isIn ? "#4ade80" : "#93c5fd",
+                    }}
+                  >
+                    {isIn ? "↓ IN" : "↑ OUT"}
+                  </span>
+                </td>
+                <td style={styles.td}>{new Date(tx.timestamp).toLocaleString()}</td>
+                <td style={styles.td}>
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${tx.tx_hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={styles.link}
+                  >
+                    {tx.tx_hash.slice(0, 10)}...
+                  </a>
+                </td>
+                <td style={styles.td}>
+                  <code style={styles.addr}>{tx.from.slice(0, 8)}...</code>
+                </td>
+                <td style={styles.td}>
+                  <code style={styles.addr}>{tx.to.slice(0, 8)}...</code>
+                </td>
+                <td style={{ ...styles.td, color: isIn ? "#4ade80" : "#e0e0e0", fontWeight: isIn ? 600 : 400 }}>
+                  {isIn ? "+" : "-"}{tx.value_eth} ETH
+                </td>
+                <td style={styles.td}>
+                  <span
+                    style={{
+                      ...styles.badge,
+                      background: tx.status === "success" ? "#064e3b" : tx.status === "pending" ? "#78350f" : "#7f1d1d",
+                      color: tx.status === "success" ? "#4ade80" : tx.status === "pending" ? "#fbbf24" : "#f87171",
+                    }}
+                  >
+                    {tx.status}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -84,4 +101,5 @@ const styles: Record<string, React.CSSProperties> = {
   link: { color: "#667eea", textDecoration: "none" },
   addr: { fontSize: "13px", color: "#aaa" },
   badge: { padding: "2px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 500 },
+  dirBadge: { padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, letterSpacing: "0.5px" },
 };

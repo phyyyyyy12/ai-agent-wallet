@@ -1,7 +1,8 @@
-"""安全策略引擎 — 限额、频率、白名单、审计"""
+"""安全策略引擎 — 限额、频率、白名单、审计、审批队列"""
 
 import json
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from pathlib import Path
@@ -186,3 +187,72 @@ class SecurityManager:
                 if line:
                     data = json.loads(line)
                     self._logs.append(OperationLog(**data))
+
+
+@dataclass
+class PendingApproval:
+    approval_id: str
+    from_address: str
+    to_address: str
+    amount_eth: float
+    reason: str
+    created_at: str
+    status: str = "pending"  # pending | approved | rejected
+
+
+class ApprovalManager:
+    """超限交易的审批队列。Agent 触发后写入待审批；人类操作员通过 MCP 工具确认/拒绝。"""
+
+    def __init__(self) -> None:
+        config.ensure_dirs()
+        self._path = config.data_dir / "pending_approvals.json"
+        self._approvals: list[PendingApproval] = []
+        self._load()
+
+    def create(self, from_address: str, to_address: str, amount_eth: float, reason: str) -> PendingApproval:
+        approval = PendingApproval(
+            approval_id=uuid.uuid4().hex[:12],
+            from_address=from_address,
+            to_address=to_address,
+            amount_eth=amount_eth,
+            reason=reason,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._approvals.append(approval)
+        self._save()
+        return approval
+
+    def list_pending(self) -> list[PendingApproval]:
+        self._load()
+        return [a for a in self._approvals if a.status == "pending"]
+
+    def get(self, approval_id: str) -> PendingApproval | None:
+        self._load()
+        for a in self._approvals:
+            if a.approval_id == approval_id:
+                return a
+        return None
+
+    def mark_approved(self, approval_id: str) -> PendingApproval | None:
+        a = self.get(approval_id)
+        if a and a.status == "pending":
+            a.status = "approved"
+            self._save()
+            return a
+        return None
+
+    def mark_rejected(self, approval_id: str) -> PendingApproval | None:
+        a = self.get(approval_id)
+        if a and a.status == "pending":
+            a.status = "rejected"
+            self._save()
+            return a
+        return None
+
+    def _save(self) -> None:
+        self._path.write_text(json.dumps([asdict(a) for a in self._approvals], indent=2))
+
+    def _load(self) -> None:
+        if self._path.exists():
+            data = json.loads(self._path.read_text())
+            self._approvals = [PendingApproval(**d) for d in data]
