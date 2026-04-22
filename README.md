@@ -68,24 +68,30 @@ npm run dev
 
 | Tool | 说明 |
 |------|------|
-| `create_wallet` | 创建新钱包，私钥加密存储 |
+| `create_wallet` | 创建新钱包，私钥加密存储，不暴露给 Agent |
 | `import_wallet` | 导入已有私钥 |
 | `get_wallet_info` | 查询地址、余额、链状态 |
 | `get_balance` | 查询任意地址余额 |
 | `send_eth` | 转账（受安全策略约束） |
-| `get_transaction` | 查询交易详情 |
-| `get_transaction_history` | 查询历史交易，合并收款记录，← / → 标注方向 |
+| `estimate_gas` | 转账前估算 Gas 费用，检查余额是否充足 |
+| `get_transaction` | 查询交易详情：Hash、From、To、Value、Status、Block |
+| `get_transaction_history` | 查询历史交易（含 tx hash），合并 Etherscan 收款，← / → 标注方向 |
 | `sign_message` | 签名消息，证明地址所有权 |
-| `set_spending_limit` | 设置支出限额 |
+| `get_security_policy` | 查询安全策略：限额、今日已用/剩余额度、白名单 |
+| `set_spending_limit` | 修改支出限额（单笔、日累计、每分钟频率） |
+| `add_to_whitelist` | 向白名单添加地址 |
+| `remove_from_whitelist` | 从白名单移除地址 |
 | `list_wallets` | 列出所有本地钱包及余额 |
 | `switch_wallet` | 切换当前活跃钱包 |
+| `delete_wallet` | 删除指定钱包 keystore（不可恢复，当前活跃钱包不可删除） |
 | `list_pending_approvals` | 查看待人类审批的超限交易（只读） |
+| `cancel_pending_approval` | 取消 Agent 自己发起的待审批交易 |
 
 > approve / reject 不在 MCP 工具集中，仅人类可通过 React Dashboard 操作，从根本上防止 Agent 自审批。
 
 ## 安全策略
 
-- 单笔限额（默认 0.1 ETH）/ 日累计限额（默认 1.0 ETH）/ 频率限制（默认 5 笔/分钟）/ 地址白名单
+- 单笔限额 / 日累计限额 / 频率限制（每分钟最大交易数）/ 地址白名单，均可通过 `set_spending_limit` 和 `add_to_whitelist` 动态调整
 - 超限操作写入待审批队列，生成 approval ID；**仅人类可在 Dashboard 点击通过/拒绝**，Agent 无法自审批
 - 私钥加密存储，主密码自动生成至 `~/.ai-agent-wallet/.master_key`（0600），不硬编码在源码中
 - 全量操作审计日志（JSONL 格式），每次工具调用均留痕
