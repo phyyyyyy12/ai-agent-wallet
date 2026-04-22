@@ -29,6 +29,7 @@ class SecurityUpdate(BaseModel):
     max_per_tx_eth: float | None = None
     max_daily_eth: float | None = None
     max_tx_per_minute: int | None = None
+    address_whitelist: list[str] | None = None
 
 
 @app.get("/api/wallet")

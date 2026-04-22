@@ -69,7 +69,8 @@ class SecurityManager:
         return self._policy
 
     def check_transaction(self, to: str, amount_eth: float) -> SecurityCheck:
-        """检查交易是否符合安全策略"""
+        """检查交易是否符合安全策略（每次从文件重载策略确保最新）"""
+        self._policy = self._load_policy()
         # 1. 单笔限额
         if amount_eth > self._policy.max_per_tx_eth:
             return SecurityCheck(
