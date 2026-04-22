@@ -214,6 +214,28 @@ class WalletCore:
 
         return record
 
+    def get_gas_info(self, to: str, amount_eth: float) -> dict:
+        """估算转账所需 Gas 费用，并检查余额是否充足"""
+        gas_limit = 21000
+        gas_price_wei = self._w3.eth.gas_price
+        gas_cost_wei = gas_limit * gas_price_wei
+        gas_cost_eth = float(self._w3.from_wei(gas_cost_wei, "ether"))
+        gas_price_gwei = float(self._w3.from_wei(gas_price_wei, "gwei"))
+
+        balance_info = self.get_balance()
+        balance_eth = float(balance_info["balance_eth"])
+        total_needed = amount_eth + gas_cost_eth
+
+        return {
+            "gas_limit": gas_limit,
+            "gas_price_gwei": gas_price_gwei,
+            "gas_cost_eth": gas_cost_eth,
+            "amount_eth": amount_eth,
+            "total_needed_eth": total_needed,
+            "balance_eth": balance_eth,
+            "sufficient": balance_eth >= total_needed,
+        }
+
     def sign_message(self, message: str) -> dict:
         """签名消息"""
         if not self._account:

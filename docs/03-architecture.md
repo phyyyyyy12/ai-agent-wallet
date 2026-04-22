@@ -66,14 +66,20 @@
 | `import_wallet` | `private_key` | 导入已有钱包 |
 | `get_balance` | `address?` | 查询 ETH 余额 |
 | `send_eth` | `to`, `amount_eth` | 发送 ETH（受安全策略约束） |
-| `get_transaction` | `tx_hash` | 查询交易详情 |
+| `estimate_gas` | `to`, `amount_eth` | 转账前估算 Gas 费用，检查余额是否充足 |
+| `get_transaction` | `tx_hash` | 查询交易详情：Hash、From、To、Value、Status、Block |
+| `get_transaction_history` | `all_wallets?`, `include_incoming?` | 查询交易历史，含 tx hash；默认当前钱包，合并 Etherscan 收款 |
 | `sign_message` | `message` | 签名消息 |
 | `get_wallet_info` | — | 获取当前钱包地址和余额 |
-| `set_spending_limit` | `per_tx`, `daily` | 设置支出限额 |
 | `list_wallets` | — | 列出所有本地钱包及余额，标注当前活跃钱包 |
 | `switch_wallet` | `address` | 切换到指定地址的钱包 |
-| `get_transaction_history` | `all_wallets?`, `include_incoming?` | 默认查当前钱包，含收款记录 |
+| `get_security_policy` | — | 查询安全策略：限额、今日已用/剩余额度、白名单 |
+| `set_spending_limit` | `per_tx?`, `daily?`, `max_tx_per_minute?` | 修改支出限额（-1 表示不修改） |
+| `get_whitelist` | — | 查询白名单地址列表 |
+| `add_to_whitelist` | `address` | 添加地址到白名单 |
+| `remove_from_whitelist` | `address` | 从白名单移除地址 |
 | `list_pending_approvals` | — | 只读，列出所有待人类审批的超限交易 |
+| `cancel_pending_approval` | `approval_id` | 取消 Agent 自己发起的待审批交易（仅限 pending 状态） |
 
 > approve / reject 故意不放在 MCP 中，避免 Agent 自审批；详见下方 HTTP API。
 

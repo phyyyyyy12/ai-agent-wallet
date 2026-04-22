@@ -56,6 +56,7 @@ class SecurityManager:
         self._recent_txs: list[dict] = []  # {timestamp, amount_eth}
         self._logs: list[OperationLog] = []
         self._load_logs()
+        self._load_recent_txs_from_history()
 
     @property
     def policy(self) -> SecurityPolicy:
@@ -104,6 +105,10 @@ class SecurityManager:
             )
 
         return SecurityCheck(result=CheckResult.APPROVED, reason="All checks passed")
+
+    def get_daily_spent(self) -> float:
+        """返回过去 24 小时已发送的 ETH 总量"""
+        return self._get_daily_total()
 
     def record_transaction(self, amount_eth: float) -> None:
         """记录交易用于限额计算"""
@@ -189,6 +194,24 @@ class SecurityManager:
                     data = json.loads(line)
                     self._logs.append(OperationLog(**data))
 
+    def _load_recent_txs_from_history(self) -> None:
+        """启动时从 transactions.json 回填过去 24 小时的发送记录，防止重启后限额计数归零"""
+        path = config.data_dir / "transactions.json"
+        if not path.exists():
+            return
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        try:
+            records = json.loads(path.read_text())
+            for r in records:
+                ts = datetime.fromisoformat(r["timestamp"])
+                if ts > cutoff and r.get("status") in ("success", "pending"):
+                    self._recent_txs.append({
+                        "timestamp": r["timestamp"],
+                        "amount_eth": float(r["value_eth"]),
+                    })
+        except Exception:
+            pass
+
 
 @dataclass
 class PendingApproval:
@@ -246,6 +269,14 @@ class ApprovalManager:
         a = self.get(approval_id)
         if a and a.status == "pending":
             a.status = "rejected"
+            self._save()
+            return a
+        return None
+
+    def mark_cancelled(self, approval_id: str) -> PendingApproval | None:
+        a = self.get(approval_id)
+        if a and a.status == "pending":
+            a.status = "cancelled"
             self._save()
             return a
         return None

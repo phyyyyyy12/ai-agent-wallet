@@ -162,12 +162,35 @@ def get_wallet_info() -> str:
 
 
 @mcp.tool()
-def set_spending_limit(per_tx_eth: float = -1, daily_eth: float = -1) -> str:
+def get_security_policy() -> str:
+    """查询当前安全策略（限额、频率限制等）。"""
+    start = time.time()
+    policy = security.policy
+    daily_spent = security.get_daily_spent()
+    daily_remaining = policy.max_daily_eth - daily_spent
+    _log("get_security_policy", {}, "OK", start=start)
+    whitelist_info = (
+        "  白名单地址:\n" + "\n".join(f"    - {a}" for a in policy.address_whitelist)
+        if policy.address_whitelist
+        else "  白名单: 未启用（允许向任意地址转账）"
+    )
+    return (
+        f"当前安全策略:\n"
+        f"  单笔限额: {policy.max_per_tx_eth} ETH\n"
+        f"  日累计限额: {policy.max_daily_eth} ETH（今日已用 {daily_spent:.4f} ETH，剩余 {daily_remaining:.4f} ETH）\n"
+        f"  每分钟最大交易数: {policy.max_tx_per_minute}\n"
+        f"{whitelist_info}"
+    )
+
+
+@mcp.tool()
+def set_spending_limit(per_tx_eth: float = -1, daily_eth: float = -1, max_tx_per_minute: int = -1) -> str:
     """设置支出限额。-1 表示不修改。
 
     Args:
         per_tx_eth: 单笔交易限额（ETH），-1 不修改
         daily_eth: 日累计限额（ETH），-1 不修改
+        max_tx_per_minute: 每分钟最大交易数，-1 不修改
     """
     start = time.time()
     updates = {}
@@ -175,6 +198,8 @@ def set_spending_limit(per_tx_eth: float = -1, daily_eth: float = -1) -> str:
         updates["max_per_tx_eth"] = per_tx_eth
     if daily_eth >= 0:
         updates["max_daily_eth"] = daily_eth
+    if max_tx_per_minute >= 0:
+        updates["max_tx_per_minute"] = max_tx_per_minute
 
     if not updates:
         policy = security.policy
@@ -212,8 +237,10 @@ def get_transaction_history(all_wallets: bool = False, include_incoming: bool = 
     for tx in merged[:30]:
         arrow = "←" if tx.get("direction") == "in" else "→"
         peer = tx["from"] if tx.get("direction") == "in" else tx["to"]
+        tx_hash = tx.get("tx_hash", "")
+        hash_display = f"  Hash: {tx_hash}" if tx_hash else ""
         lines.append(
-            f"  [{tx['timestamp'][:19]}] {tx['value_eth']} ETH {arrow} {peer[:10]}... ({tx['status']})"
+            f"  [{tx['timestamp'][:19]}] {tx['value_eth']} ETH {arrow} {peer} ({tx['status']}){hash_display}"
         )
     _log("get_transaction_history", {"all_wallets": all_wallets}, f"{len(merged)} records", start=start)
     return "\n".join(lines)
@@ -272,6 +299,101 @@ def list_pending_approvals() -> str:
         )
     _log("list_pending_approvals", {}, f"{len(pending)} pending", start=start)
     return "\n".join(lines)
+
+
+@mcp.tool()
+def add_to_whitelist(address: str) -> str:
+    """向白名单添加地址。白名单启用后，向不在白名单内的地址转账需要人类审批。
+
+    Args:
+        address: 要添加的以太坊地址（0x...）
+    """
+    start = time.time()
+    policy = security.policy
+    if address.lower() in [a.lower() for a in policy.address_whitelist]:
+        _log("add_to_whitelist", {"address": address}, "Already exists", start=start)
+        return f"地址 {address} 已在白名单中。"
+    policy.address_whitelist.append(address)
+    security.update_policy(address_whitelist=policy.address_whitelist)
+    _log("add_to_whitelist", {"address": address}, "Added", start=start)
+    return f"已添加到白名单: {address}\n当前白名单共 {len(policy.address_whitelist)} 个地址。"
+
+
+@mcp.tool()
+def remove_from_whitelist(address: str) -> str:
+    """从白名单移除地址。
+
+    Args:
+        address: 要移除的以太坊地址（0x...）
+    """
+    start = time.time()
+    policy = security.policy
+    original = policy.address_whitelist
+    updated = [a for a in original if a.lower() != address.lower()]
+    if len(updated) == len(original):
+        _log("remove_from_whitelist", {"address": address}, "Not found", start=start)
+        return f"地址 {address} 不在白名单中。"
+    security.update_policy(address_whitelist=updated)
+    _log("remove_from_whitelist", {"address": address}, "Removed", start=start)
+    return f"已从白名单移除: {address}\n当前白名单共 {len(updated)} 个地址。"
+
+
+@mcp.tool()
+def get_whitelist() -> str:
+    """查询当前地址白名单。白名单启用时，只有列表内的地址可以直接转账；其余地址需要人类审批。"""
+    start = time.time()
+    policy = security.policy
+    _log("get_whitelist", {}, "OK", start=start)
+    if not policy.address_whitelist:
+        return "白名单未启用。当前允许向任意地址转账（仍受限额约束）。"
+    lines = [f"白名单地址（共 {len(policy.address_whitelist)} 个）:"]
+    for addr in policy.address_whitelist:
+        lines.append(f"  - {addr}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def cancel_pending_approval(approval_id: str) -> str:
+    """取消一笔由 Agent 自己发起的待审批交易。仅可取消 pending 状态的交易。
+
+    Args:
+        approval_id: 审批 ID（由 send_eth 返回）
+    """
+    start = time.time()
+    result = approvals.mark_cancelled(approval_id)
+    if not result:
+        _log("cancel_pending_approval", {"approval_id": approval_id}, "Not found or not pending", start=start)
+        return f"取消失败：审批 ID {approval_id} 不存在或已不是 pending 状态。"
+    _log("cancel_pending_approval", {"approval_id": approval_id}, "Cancelled", start=start)
+    return f"已取消审批请求 {approval_id}（{result.amount_eth} ETH → {result.to_address}）"
+
+
+@mcp.tool()
+def estimate_gas(to: str, amount_eth: float) -> str:
+    """转账前估算 Gas 费用，并检查余额是否足够支付转账金额 + Gas。
+
+    Args:
+        to: 目标地址 (0x...)
+        amount_eth: 计划发送金额（单位 ETH）
+    """
+    start = time.time()
+    try:
+        info = wallet.get_gas_info(to, amount_eth)
+        status = "✓ 余额充足" if info["sufficient"] else "✗ 余额不足"
+        _log("estimate_gas", {"to": to, "amount_eth": amount_eth}, status, start=start)
+        return (
+            f"Gas 估算:\n"
+            f"  Gas Limit: {info['gas_limit']} units\n"
+            f"  Gas Price: {info['gas_price_gwei']:.2f} Gwei\n"
+            f"  Gas 费用: {info['gas_cost_eth']:.8f} ETH\n"
+            f"  转账金额: {info['amount_eth']} ETH\n"
+            f"  合计需要: {info['total_needed_eth']:.8f} ETH\n"
+            f"  当前余额: {info['balance_eth']} ETH\n"
+            f"  {status}"
+        )
+    except Exception as e:
+        _log("estimate_gas", {"to": to, "amount_eth": amount_eth}, f"ERROR: {e}", start=start)
+        return f"Gas 估算失败: {e}"
 
 
 # 注：approve/reject 工具不暴露给 Agent，仅人类操作员通过 React Dashboard
