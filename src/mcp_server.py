@@ -93,8 +93,8 @@ def send_eth(to: str, amount_eth: float) -> str:
             f"  From: {approval.from_address}\n"
             f"  To: {to}\n"
             f"  金额: {amount_eth} ETH\n\n"
-            f"人类操作员请调用 approve_pending_transaction(approval_id) 确认，"
-            f"或 reject_pending_transaction(approval_id) 拒绝。"
+            f"请人类操作员前往 React Dashboard → Approvals 面板审批或拒绝。\n"
+            f"如需撤销此请求，可调用 cancel_pending_approval('{approval.approval_id}')。"
         )
 
     # 执行交易
@@ -263,6 +263,24 @@ def list_wallets() -> str:
 
 
 @mcp.tool()
+def delete_wallet(address: str) -> str:
+    """删除指定地址的钱包（移除本地 keystore）。当前活跃钱包不可删除，需先切换。此操作不可恢复。
+
+    Args:
+        address: 要删除的钱包地址（0x...）
+    """
+    start = time.time()
+    try:
+        wallet.delete_wallet(address)
+        _log("delete_wallet", {"address": address}, "Deleted", start=start)
+        return f"钱包 {address} 已删除。私钥 keystore 已从本地移除，此操作不可恢复。"
+    except ValueError as e:
+        err = str(e)
+        _log("delete_wallet", {"address": address}, f"ERROR: {err}", start=start)
+        return f"删除失败: {err}"
+
+
+@mcp.tool()
 def switch_wallet(address: str) -> str:
     """切换到指定地址的钱包。
 
@@ -337,19 +355,6 @@ def remove_from_whitelist(address: str) -> str:
     _log("remove_from_whitelist", {"address": address}, "Removed", start=start)
     return f"已从白名单移除: {address}\n当前白名单共 {len(updated)} 个地址。"
 
-
-@mcp.tool()
-def get_whitelist() -> str:
-    """查询当前地址白名单。白名单启用时，只有列表内的地址可以直接转账；其余地址需要人类审批。"""
-    start = time.time()
-    policy = security.policy
-    _log("get_whitelist", {}, "OK", start=start)
-    if not policy.address_whitelist:
-        return "白名单未启用。当前允许向任意地址转账（仍受限额约束）。"
-    lines = [f"白名单地址（共 {len(policy.address_whitelist)} 个）:"]
-    for addr in policy.address_whitelist:
-        lines.append(f"  - {addr}")
-    return "\n".join(lines)
 
 
 @mcp.tool()

@@ -75,11 +75,11 @@
 | `switch_wallet` | `address` | 切换到指定地址的钱包 |
 | `get_security_policy` | — | 查询安全策略：限额、今日已用/剩余额度、白名单 |
 | `set_spending_limit` | `per_tx?`, `daily?`, `max_tx_per_minute?` | 修改支出限额（-1 表示不修改） |
-| `get_whitelist` | — | 查询白名单地址列表 |
-| `add_to_whitelist` | `address` | 添加地址到白名单 |
+| `add_to_whitelist` | `address` | 添加地址到白名单（白名单信息可通过 get_security_policy 查看） |
 | `remove_from_whitelist` | `address` | 从白名单移除地址 |
 | `list_pending_approvals` | — | 只读，列出所有待人类审批的超限交易 |
 | `cancel_pending_approval` | `approval_id` | 取消 Agent 自己发起的待审批交易（仅限 pending 状态） |
+| `delete_wallet` | `address` | 删除指定钱包 keystore（不可恢复，当前活跃钱包不可删除） |
 
 > approve / reject 故意不放在 MCP 中，避免 Agent 自审批；详见下方 HTTP API。
 

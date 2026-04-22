@@ -114,6 +114,16 @@ class WalletCore:
             })
         return result
 
+    def delete_wallet(self, address: str) -> str:
+        """删除指定地址的钱包 keystore，不可恢复。当前活跃钱包不允许删除。"""
+        if self._address and address.lower() == self._address.lower():
+            raise ValueError("不能删除当前活跃钱包，请先切换到其他钱包再删除。")
+        keystore_path = config.data_dir / "keystores" / f"{address}.json"
+        if not keystore_path.exists():
+            raise ValueError(f"未找到钱包 {address}")
+        keystore_path.unlink()
+        return address
+
     def switch_wallet(self, address: str) -> str:
         """切换到指定地址的钱包"""
         keystore_path = config.data_dir / "keystores" / f"{address}.json"
