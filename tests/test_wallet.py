@@ -112,19 +112,19 @@ class TestSecurityPolicy:
 class TestSecurityManager:
     def test_check_within_limits(self):
         sm = SecurityManager()
-        sm._policy = SecurityPolicy(max_per_tx_eth=1.0, max_daily_eth=10.0)
+        sm.update_policy(max_per_tx_eth=1.0, max_daily_eth=10.0, max_tx_per_minute=5, address_whitelist=[])
         check = sm.check_transaction("0x1234", 0.5)
         assert check.result == CheckResult.APPROVED
 
     def test_check_exceeds_per_tx(self):
         sm = SecurityManager()
-        sm._policy = SecurityPolicy(max_per_tx_eth=0.1)
+        sm.update_policy(max_per_tx_eth=0.1, max_daily_eth=10.0, max_tx_per_minute=5, address_whitelist=[])
         check = sm.check_transaction("0x1234", 0.5)
         assert check.result == CheckResult.NEEDS_APPROVAL
 
     def test_check_exceeds_daily(self):
         sm = SecurityManager()
-        sm._policy = SecurityPolicy(max_per_tx_eth=1.0, max_daily_eth=0.5)
+        sm.update_policy(max_per_tx_eth=1.0, max_daily_eth=0.5, max_tx_per_minute=5, address_whitelist=[])
         # 模拟已有交易
         sm.record_transaction(0.4)
         check = sm.check_transaction("0x1234", 0.2)
@@ -132,7 +132,7 @@ class TestSecurityManager:
 
     def test_check_rate_limit(self):
         sm = SecurityManager()
-        sm._policy = SecurityPolicy(max_per_tx_eth=10.0, max_daily_eth=100.0, max_tx_per_minute=2)
+        sm.update_policy(max_per_tx_eth=10.0, max_daily_eth=100.0, max_tx_per_minute=2, address_whitelist=[])
         sm.record_transaction(0.01)
         sm.record_transaction(0.01)
         check = sm.check_transaction("0x1234", 0.01)
@@ -140,11 +140,7 @@ class TestSecurityManager:
 
     def test_check_whitelist(self):
         sm = SecurityManager()
-        sm._policy = SecurityPolicy(
-            max_per_tx_eth=10.0,
-            max_daily_eth=100.0,
-            address_whitelist=["0xAAAA"],
-        )
+        sm.update_policy(max_per_tx_eth=10.0, max_daily_eth=100.0, max_tx_per_minute=5, address_whitelist=["0xAAAA"])
         check = sm.check_transaction("0xBBBB", 0.01)
         assert check.result == CheckResult.NEEDS_APPROVAL
 
