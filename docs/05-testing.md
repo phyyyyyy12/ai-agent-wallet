@@ -58,13 +58,4 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/test_wallet.py -v
 | `test_update_policy` | 修改限额后立即生效 | 新值可读取 |
 | `test_log_operation` | 记录一条操作日志 | `get_logs()` 可查询到 |
 
-### 三态结果说明
-
-| 结果 | 含义 | 触发条件 |
-|------|------|---------|
-| `APPROVED` | 自动通过，Agent 可直接执行 | 所有检查均通过 |
-| `NEEDS_APPROVAL` | 需要人类确认 | 超限额或地址不在白名单 |
-| `DENIED` | 直接拒绝 | 触发频率限制（风控熔断） |
-
----
 
