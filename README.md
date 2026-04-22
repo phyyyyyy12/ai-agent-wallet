@@ -29,7 +29,10 @@ uv sync --dev
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_wallet.py -v
 
 # 启动 API Server（供前端使用，端口 8088）
-WALLET_ETHERSCAN_API_KEY=your_key .venv/bin/python -m uvicorn src.api:app --port 8088 --reload
+.venv/bin/python -m uvicorn src.api:app --port 8088 --reload
+
+# Etherscan API Key（用于查询收款记录），首次配置后无需重复设置
+echo "your_key" > ~/.ai-agent-wallet/.etherscan_key && chmod 600 ~/.ai-agent-wallet/.etherscan_key
 ```
 
 ### 前端
@@ -51,15 +54,15 @@ npm run dev
     "ai-wallet": {
       "command": "/path/to/ai-agent-wallet/.venv/bin/python",
       "args": ["/path/to/ai-agent-wallet/src/mcp_server.py"],
-      "env": {
-        "WALLET_ETHERSCAN_API_KEY": "your_key"
-      }
+      "env": {}
     }
   }
 }
 ```
 
 重启 Claude Code / Cursor 后即可直接调用钱包工具。
+
+> Etherscan Key 自动从 `~/.ai-agent-wallet/.etherscan_key` 读取（见后端启动步骤），无需在 `.mcp.json` 中配置。
 
 ## MCP 工具列表
 

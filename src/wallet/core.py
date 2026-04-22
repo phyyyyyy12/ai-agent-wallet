@@ -49,11 +49,19 @@ class WalletCore:
     _account: Account | None = field(init=False, default=None)
     _address: str | None = field(init=False, default=None)
     _transactions: list[TransactionRecord] = field(init=False, default_factory=list)
+    _nonce: int | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         config.ensure_dirs()
         self._w3 = Web3(Web3.HTTPProvider(config.rpc_url))
         self._load_transactions()
+
+    def _next_nonce(self) -> int:
+        if self._nonce is None:
+            self._nonce = self._w3.eth.get_transaction_count(self._address)
+        n = self._nonce
+        self._nonce += 1
+        return n
 
     # ── 密钥管理 ──
 
@@ -62,6 +70,7 @@ class WalletCore:
         account = Account.create(extra_entropy=secrets.token_hex(32))
         self._account = account
         self._address = account.address
+        self._nonce = None
         self._save_keystore(account.key.hex())
         return account.address
 
@@ -70,6 +79,7 @@ class WalletCore:
         account = Account.from_key(private_key)
         self._account = account
         self._address = account.address
+        self._nonce = None
         self._save_keystore(private_key)
         return account.address
 
@@ -83,6 +93,7 @@ class WalletCore:
         account = Account.from_key(pk)
         self._account = account
         self._address = account.address
+        self._nonce = None
         return account.address
 
     def list_wallets(self) -> list[dict]:
@@ -112,6 +123,7 @@ class WalletCore:
         account = Account.from_key(pk)
         self._account = account
         self._address = account.address
+        self._nonce = None
         return account.address
 
     @property
@@ -181,7 +193,7 @@ class WalletCore:
             "value": value_wei,
             "gas": 21000,
             "gasPrice": self._w3.eth.gas_price,
-            "nonce": self._w3.eth.get_transaction_count(self._address),
+            "nonce": self._next_nonce(),
             "chainId": self._w3.eth.chain_id,
         }
 

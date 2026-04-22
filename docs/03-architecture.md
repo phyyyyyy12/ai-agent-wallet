@@ -6,14 +6,14 @@
 ┌──────────────────────────────────────────────────────────────┐
 │                      Human / Browser                          │
 │                   React Dashboard (Vite)                       │
-│         余额 │ 交易历史 │ 安全配置 │ Agent 日志               │
+│   余额 │ 交易历史 │ 待审批(Approvals) │ 安全配置 │ Agent 日志  │
 └──────────┬───────────────────────────────────────────────────┘
            │ HTTP (REST API)
            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                     FastAPI Server                             │
-│              /api/balance  /api/transactions                   │
-│              /api/logs     /api/security                       │
+│   /api/wallet  /api/wallets  /api/transactions  /api/logs     │
+│   /api/security  /api/approvals  /api/approvals/{id}/approve  │
 └──────────┬───────────────────────────────────────────────────┘
            │
            │  共享 Wallet Core
@@ -98,7 +98,8 @@
 ### 2.3 Security Layer（安全层）
 
 - **职责**：在交易执行前进行安全检查
-- **策略配置**：持久化在 JSON 文件中
+- **策略配置**：持久化在 `security_policy.json`，`PUT /api/security` 修改后实时写入文件
+- **实时生效**：`check_transaction()` 每次调用时重新从文件加载策略，MCP 进程无需重启即可感知 Dashboard 的策略变更（包括白名单）
 - **检查流程**：
 
 ```
@@ -144,29 +145,35 @@ Agent (Claude Code)
 MCP Server
   │
   ├─ SecurityLayer.check_transaction(to, amount)
-  │   ├─ 检查单笔限额: 0.05 < 0.1 ✓
-  │   ├─ 检查日累计: 0.15 < 1.0 ✓
-  │   └─ 返回 APPROVED
+  │   ├─ 从文件重载最新策略（实时感知 Dashboard 修改）
+  │   ├─ 检查单笔限额 / 日累计 / 频率 / 白名单
+  │   │
+  │   ├─ → APPROVED
+  │   │     └─ WalletCore.send_transaction()
+  │   │           解密私钥 → 构建交易 → 签名 → 广播 → 返回 tx_hash
+  │   │
+  │   ├─ → NEEDS_APPROVAL
+  │   │     └─ ApprovalManager.create() 写入 pending_approvals.json
+  │   │           返回 approval_id 给 Agent（等待人类在 Dashboard 操作）
+  │   │
+  │   └─ → DENIED（频率熔断）
+  │         返回拒绝原因，不执行任何操作
   │
-  ├─ WalletCore.send_transaction(to, amount)
-  │   ├─ 解密私钥
-  │   ├─ 构建交易 (nonce, gasPrice, gasLimit)
-  │   ├─ 签名交易
-  │   ├─ 广播到 Sepolia
-  │   └─ 返回 tx_hash
+  ├─ 记录操作日志（含安全检查结果）
   │
-  ├─ 记录操作日志
-  │
-  └─ 返回给 Agent: { tx_hash, status, explorer_url }
+  └─ 返回结果给 Agent
 ```
 
 ### 3.2 人类查看仪表盘
 
 ```
-Browser → GET /api/wallet → FastAPI → WalletCore.get_balance() → Sepolia RPC
-Browser → GET /api/transactions → FastAPI → 读取本地交易记录
-Browser → GET /api/logs → FastAPI → 读取操作日志文件
-Browser → PUT /api/security → FastAPI → 更新安全策略配置
+Browser → GET /api/wallet       → FastAPI → WalletCore.get_balance() → Sepolia RPC
+Browser → GET /api/transactions → FastAPI → 本地发送记录 + Etherscan 收款，合并排序
+Browser → GET /api/logs         → FastAPI → 读取 operations.jsonl
+Browser → GET /api/approvals    → FastAPI → ApprovalManager.list_pending()（实时读文件）
+Browser → PUT /api/security     → FastAPI → 更新 security_policy.json（MCP 实时感知）
+Browser → POST /api/approvals/{id}/approve → FastAPI → 切换钱包 → 执行链上转账
+Browser → POST /api/approvals/{id}/reject  → FastAPI → 标记拒绝，写入审计日志
 ```
 
 ## 4. 安全模型
